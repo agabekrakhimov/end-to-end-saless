@@ -1,0 +1,96 @@
+{
+  "pipeline": {
+    "name": "end-to-end-sales-analytics",
+    "catalog": "hive_metastore",
+    "target": "silver",
+    "continuous": false,
+    "development": false,
+    "photon": true,
+    "channel": "CURRENT",
+    "cluster": {
+      "spark_version": "14.3.x-scala2.12",
+      "node_type_id":  "Standard_DS3_v2",
+      "num_workers":   4,
+      "autoscale": {
+        "min_workers": 2,
+        "max_workers": 8
+      },
+      "spark_conf": {
+        "spark.databricks.delta.preview.enabled": "true",
+        "spark.databricks.delta.optimizeWrite.enabled": "true",
+        "spark.databricks.delta.autoCompact.enabled": "true"
+      }
+    },
+    "libraries": [
+      { "notebook": { "path": "/Repos/agabekrakhimov/end-to-end-saless/notebooks/01_bronze_ingest" }},
+      { "notebook": { "path": "/Repos/agabekrakhimov/end-to-end-saless/notebooks/02_silver_transform" }}
+    ],
+    "notifications": [
+      {
+        "email_recipients": ["agabekrakhimov@gmail.com"],
+        "alerts": ["on-update-failure", "on-flow-failure"]
+      }
+    ]
+  },
+  "jobs": {
+    "gold_and_alerts": {
+      "name": "Gold Aggregations + Anomaly Detection",
+      "schedule": {
+        "quartz_cron_expression": "0 0 8 * * ?",
+        "timezone_id": "America/New_York"
+      },
+      "tasks": [
+        {
+          "task_key": "gold_aggregations",
+          "notebook_task": {
+            "notebook_path": "/Repos/agabekrakhimov/end-to-end-saless/notebooks/03_gold_aggregations",
+            "source": "GIT"
+          },
+          "existing_cluster_id": "{{CLUSTER_ID}}"
+        },
+        {
+          "task_key": "anomaly_detection",
+          "depends_on": [{ "task_key": "gold_aggregations" }],
+          "notebook_task": {
+            "notebook_path": "/Repos/agabekrakhimov/end-to-end-saless/notebooks/04_anomaly_detection",
+            "source": "GIT"
+          },
+          "existing_cluster_id": "{{CLUSTER_ID}}"
+        }
+      ],
+      "email_notifications": {
+        "on_failure": ["agabekrakhimov@gmail.com"],
+        "no_alert_for_skipped_runs": true
+      },
+      "max_retries": 2,
+      "min_retry_interval_millis": 300000
+    }
+  },
+  "mounts": {
+    "raw":     "/mnt/raw",
+    "bronze":  "/mnt/bronze",
+    "silver":  "/mnt/silver",
+    "gold":    "/mnt/gold",
+    "config":  "/mnt/config"
+  },
+  "smtp": {
+    "host":     "smtp.gmail.com",
+    "port":     587,
+    "user":     "{{SMTP_USER}}",
+    "password": "{{SMTP_PASSWORD}}"
+  },
+  "alert_recipients": [
+    "agabekrakhimov@gmail.com"
+  ],
+  "alert_sender_name": "Sales Analytics Platform",
+  "thresholds": {
+    "zscore_revenue":      2.5,
+    "zscore_volume":       2.5,
+    "iqr_multiplier":      1.5,
+    "min_gross_margin":    0.10,
+    "max_discount_pct":    0.25,
+    "max_daily_leakage":   50000,
+    "wow_conversion_drop": 0.20,
+    "max_cpa_multiplier":  3.0
+  }
+}
